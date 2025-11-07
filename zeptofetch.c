@@ -53,6 +53,7 @@ static char os_cached[MAX_NAME] = {0};
 static int os_found = 0;
 static char host_cached[MAX_SMALL] = {0};
 static int host_found = 0;
+static char pm[MAX_SMALL] = {0};
 
 static const struct {
     const char *name;
@@ -94,7 +95,7 @@ static const struct {
     const char *name;
     size_t len;
 } g_wms[] = {
-    {"hyprland", 8},      {"sway", 4},           {"kwin", 4},
+    {"Hyprland", 8},      {"sway", 4},           {"kwin", 4},
     {"mutter", 6},        {"openbox", 7},        {"i3", 2},
     {"bspwm", 5},         {"awesome", 7},        {"dwm", 3},
     {"xmonad", 6},        {"muffin", 6},         {"marco", 5},
@@ -116,7 +117,6 @@ static const struct {
     {"snapwm", 6},        {"tinywm", 6},         {"trayer", 6},
     {"twm", 3},           {"vwm", 3},            {"waimea", 6},
     {"wmii", 4},          {"wmx", 3},            {"acme", 4},
-    {"Hyprland", 8}
 };
 
 __attribute__((nonnull, access(write_only, 1), access(read_only, 2))) static void
@@ -533,14 +533,17 @@ get_os(char *buf, size_t sz)
         str_copy(buf, "Linux", sz);
         str_copy(os_cached, "Linux", sizeof(os_cached));
         os_found = 1;
+        str_copy(pm, "unknown", sizeof(pm));
         return;
     }
 
     char line[MAX_LINE];
     char pretty_name[MAX_LINE] = {0};
     char name_buf[MAX_LINE] = {0};
+    char id_buf[MAX_LINE] = {0};
     int found_pretty = 0;
     int found_name = 0;
+    int found_id = 0;
 
     while (fgets(line, sizeof(line), f)) {
         if (strncmp(line, "PRETTY_NAME=", 12) == 0) {
@@ -567,6 +570,18 @@ get_os(char *buf, size_t sz)
                 str_copy(name_buf, p, sizeof(name_buf));
                 found_name = 1;
             }
+        } else if (strncmp(line, "ID=", 3) == 0 && !found_id) {
+            char *val = line + 3;
+            if (val[0] == '"') {
+                val++;
+                char *endq = strchr(val, '"');
+                if (endq) *endq = '\0';
+            } else {
+                char *nl = strchr(val, '\n');
+                if (nl) *nl = '\0';
+            }
+            str_copy(id_buf, val, sizeof(id_buf));
+            found_id = 1;
         }
     }
 
@@ -583,6 +598,73 @@ get_os(char *buf, size_t sz)
 
     os_found = 1;
     fclose(f);
+
+    if (found_id && id_buf[0] != '\0') {
+        if (strstr(id_buf, "ubuntu") || strstr(id_buf, "debian") ||
+            strstr(id_buf, "linuxmint") || strstr(id_buf, "pop") ||
+            strstr(id_buf, "kali")) {
+            str_copy(pm, "dpkg", sizeof(pm));
+        } else if (strstr(id_buf, "arch")) {
+            str_copy(pm, "pacman", sizeof(pm));
+        } else if (strstr(id_buf, "fedora") || strstr(id_buf, "rhel") ||
+                   strstr(id_buf, "centos") || strstr(id_buf, "rocky") ||
+                   strstr(id_buf, "almalinux") || strstr(id_buf, "opensuse") ||
+                   strstr(id_buf, "sles")) {
+            str_copy(pm, "rpm", sizeof(pm));
+        } else {
+            str_copy(pm, "unknown", sizeof(pm));
+        }
+    } else {
+        str_copy(pm, "unknown", sizeof(pm));
+    }
+}
+
+__attribute__((nonnull, access(write_only, 1))) static void
+get_packages(char *buf, size_t sz)
+{
+    if (sz == 0 || buf == NULL) return;
+    buf[0] = '\0';
+
+    if (str_eq(pm, "unknown") || pm[0] == '\0') {
+        str_copy(buf, "unknown", sz);
+        return;
+    }
+
+    FILE *p = NULL;
+    char cmd[128] = {0};
+    int count = -1;
+
+    if (str_eq(pm, "dpkg")) {
+        snprintf(cmd, sizeof(cmd), "dpkg-query -f '${Package}\\n' -W 2>/dev/null | wc -l");
+    } else if (str_eq(pm, "pacman")) {
+        snprintf(cmd, sizeof(cmd), "pacman -Qq 2>/dev/null | wc -l");
+    } else if (str_eq(pm, "rpm")) {
+        snprintf(cmd, sizeof(cmd), "rpm -qa 2>/dev/null | wc -l");
+    }
+
+    if (cmd[0] == '\0') {
+        str_copy(buf, "unknown", sz);
+        return;
+    }
+
+    p = popen(cmd, "r");
+    if (p != NULL) {
+        char line[16];
+        if (fgets(line, sizeof(line), p) != NULL) {
+            char *endptr;
+            count = (int)strtol(line, &endptr, 10);
+            if (endptr == line || (*endptr != '\n' && *endptr != '\0' && *endptr != ' ')) {
+                count = -1;
+            }
+        }
+        pclose(p);
+    }
+
+    if (count >= 0) {
+        snprintf(buf, sz, "%d", count);
+    } else {
+        str_copy(buf, "unknown", sz);
+    }
 }
 
 static void
@@ -649,7 +731,7 @@ sanitise_release(char *dst, size_t sz, const char *src)
 
 __attribute__((nonnull)) static void
 display(const char *user, const char *host, const char *os, const char *kern,
-        const char *shell, const char *wm, const char *term)
+        const char *shell, const char *wm, const char *term, const char *packages)
 {
     char rel_clean[64];
     sanitise_release(rel_clean, sizeof(rel_clean), kern);
@@ -670,8 +752,9 @@ display(const char *user, const char *host, const char *os, const char *kern,
            COLOR_RESET, COLOR_3, COLOR_RESET, shell);
     printf("%s_%s/\\ %s__)%s/%s_%s)%s   %sWM:%s %s\n", COLOR_3, COLOR_1, COLOR_2, COLOR_1,
            COLOR_3, COLOR_1, COLOR_RESET, COLOR_3, COLOR_RESET, wm);
-    printf("%s%s\\/%s-____%s\\/%s    %sTerminal:%s %s\n\n", COLOR_1, COLOR_3, COLOR_1,
+    printf("%s%s\\/%s-____%s\\/%s    %sTerminal:%s %s\n", COLOR_1, COLOR_3, COLOR_1,
            COLOR_3, COLOR_RESET, COLOR_3, COLOR_RESET, term);
+    printf("                 %sPackages:%s %s\n\n", COLOR_3, COLOR_RESET, packages);
 }
 
 int
@@ -701,6 +784,7 @@ main(int argc, char **argv)
     char wm[MAX_SMALL];
     char term[MAX_SMALL];
     char os[MAX_NAME];
+    char packages[MAX_SMALL];
     struct utsname info;
 
     if (uname(&info) != 0)
@@ -720,8 +804,9 @@ main(int argc, char **argv)
     get_term(chain, cnt, term, sizeof(term));
     get_wm(wm, sizeof(wm));
     get_os(os, sizeof(os));
+    get_packages(packages, sizeof(packages));
 
-    display(user, host, os, info.release, shell, wm, term);
+    display(user, host, os, info.release, shell, wm, term, packages);
 
     free(chain);
     return 0;
