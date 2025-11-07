@@ -754,7 +754,10 @@ display(const char *user, const char *host, const char *os, const char *kern,
            COLOR_3, COLOR_1, COLOR_RESET, COLOR_3, COLOR_RESET, wm);
     printf("%s%s\\/%s-____%s\\/%s    %sTerminal:%s %s\n", COLOR_1, COLOR_3, COLOR_1,
            COLOR_3, COLOR_RESET, COLOR_3, COLOR_RESET, term);
-    printf("                 %sPackages:%s %s\n\n", COLOR_3, COLOR_RESET, packages);
+    if (!str_eq(packages, "unknown")) {
+        printf("                 %sPackages:%s %s\n", COLOR_3, COLOR_RESET, packages);
+    }
+    printf("\n");
 }
 
 int
