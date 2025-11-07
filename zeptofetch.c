@@ -553,7 +553,6 @@ get_os(char *buf, size_t sz)
                 *end = '\0';
                 str_copy(pretty_name, start + 1, sizeof(pretty_name));
                 found_pretty = 1;
-                break;
             }
         } else if (strncmp(line, "NAME=", 5) == 0 && !found_name) {
             char *start = strchr(line, '"');
@@ -755,7 +754,7 @@ display(const char *user, const char *host, const char *os, const char *kern,
     printf("%s%s\\/%s-____%s\\/%s    %sTerminal:%s %s\n", COLOR_1, COLOR_3, COLOR_1,
            COLOR_3, COLOR_RESET, COLOR_3, COLOR_RESET, term);
     if (!str_eq(packages, "unknown")) {
-        printf("                 %sPackages:%s %s\n", COLOR_3, COLOR_RESET, packages);
+        printf("             %sPackages:%s %s\n", COLOR_3, COLOR_RESET, packages);
     }
     printf("\n");
 }
